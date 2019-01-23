@@ -1,0 +1,326 @@
+#!/usr/bin/perl -CSDAL
+use warnings;
+use strict;
+use AnyEvent::HTTP;
+use Asterisk::AMI;
+use Config::Simple;
+use DDP;
+use Log::Any::Adapter;
+use Log::Any qw($log);
+use POSIX;
+use WWW::Form::UrlEncoded;
+
+my $cfg;
+my $astman;
+my @zammad_post_queue;
+my $zammad_lock = 0;
+my $zammad_queue_watcher;
+
+sub asterisk_connect
+{
+  $log->info("connecting to Asterisk...");
+
+  $astman = Asterisk::AMI->new(
+      PeerAddr => $cfg->param("asterisk.host"),
+      PeerPort => $cfg->param("asterisk.port"),
+      Username => $cfg->param("asterisk.user"),
+      Secret   => $cfg->param("asterisk.secret"),
+      Events   => "on",
+      Handlers => { default => \&cb_default },
+      Blocking => 0,
+      on_connect => \&on_connect,
+      on_error => \&on_error,
+      on_disconnect => \&on_disconnect,
+    );
+}
+
+sub dequeue_zammad
+{
+  return if scalar @zammad_post_queue == 0;
+  return if $zammad_lock;
+
+  my $body = shift @zammad_post_queue;
+  $log->infof("posting to Zammad: %s", $body);
+
+  $zammad_lock = 1;
+  http_post $cfg->param("zammad.url"), $body,
+      sub {
+        $zammad_lock = 0;
+        my ($data, $headers) = @_;
+        if ($data ne "{}")
+        {
+          p $data;
+          p $headers;
+        }
+      };
+}
+
+sub post_zammad
+{
+  my $post = shift;
+
+  my $body = WWW::Form::UrlEncoded::build_urlencoded($post);
+
+  $log->infof("pushing to Zammad post queue: %s", $body);
+  push @zammad_post_queue, $body;
+
+  if (!$zammad_queue_watcher)
+  {
+    $log->debug("starting queue runner");
+  }
+  $zammad_queue_watcher ||= AnyEvent->idle(cb => sub {
+      if (@zammad_post_queue > 0)
+      {
+        if (!$zammad_lock)
+        {
+          $log->debug("dequeueing a single message");
+          dequeue_zammad;
+        }
+      }
+      else
+      {
+        $log->debug("stopping queue runner");
+        undef $zammad_queue_watcher;
+      }
+    }
+  );
+}
+
+sub on_connect
+{
+  my ($astman) = @_;
+  $log->info("connection established");
+}
+
+sub on_error
+{
+  my ($astman, $error) = @_;
+  $log->errorf("encountered on_error event: %s", $error);
+}
+
+sub on_disconnect
+{
+  my ($astman, $error) = @_;
+
+  $log->errorf("encountered on_disconnect event: %s", $error);
+}
+
+sub cb_default
+{
+  my ($asterisk, $event) = @_;
+
+  # QueueCallerJoin -> Anruf startet
+  # QueueCallerAbandon -> Anrufer hat zu früh aufgelegt
+  # AgentConnect -> Agent hat abgenommen
+  # AgentComplete -> Agent hat fertig
+
+  $log->debugf("got event: %s", $event->{Event});
+  #$log->debug(np($event));
+
+  if ($event->{Event} eq "QueueCallerJoin")
+  {
+    # EVENT: QueueCallerJoin
+    # \ {
+    #     AccountCode         "",
+    #     CallerIDName        "Lastname, Firstname",
+    #     CallerIDNum         "+49 123 456789",
+    #     Channel             "SIP/hfo-00000018",
+    #     ChannelState        6,
+    #     ChannelStateDesc    "Up",
+    #     ConnectedLineName   "<unknown>",
+    #     ConnectedLineNum    "<unknown>",
+    #     Context             "internal",
+    #     Count               1,
+    #     Event               "QueueCallerJoin",
+    #     Exten               "support_queue",
+    #     Language            "de",
+    #     Linkedid            1545241916.41,
+    #     Position            1,
+    #     Priority            7,
+    #     Privilege           "agent,all",
+    #     Queue               "support",
+    #     Uniqueid            1545241916.41
+    # }
+    post_zammad {
+        event => "newCall",
+        from => $event->{CallerIDNum},
+        to => $event->{Queue},
+        direction => "in",
+        callId => $event->{Uniqueid},
+      };
+  }
+  elsif ($event->{Event} eq "AgentConnect")
+  {
+    # EVENT: AgentConnect
+    # \ {
+    #     AccountCode             "",
+    #     CallerIDName            "Lastname, Firstname",
+    #     CallerIDNum             "+49 123 456789",
+    #     Channel                 "SIP/hfo-00000018",
+    #     ChannelState            6,
+    #     ChannelStateDesc        "Up",
+    #     ConnectedLineName       "AgentFirstname",
+    #     ConnectedLineNum        "<unknown>",
+    #     Context                 "internal",
+    #     DestAccountCode         "",
+    #     DestCallerIDName        "AgentFirstname",
+    #     DestCallerIDNum         "<unknown>",
+    #     DestChannel             "SIP/agent.name-00000019",
+    #     DestChannelState        6,
+    #     DestChannelStateDesc    "Up",
+    #     DestConnectedLineName   "Lastname, Firstname",
+    #     DestConnectedLineNum    "+49 123 456789",
+    #     DestContext             "internal",
+    #     DestExten               "support_queue",
+    #     DestLanguage            "de",
+    #     DestLinkedid            1545241916.41,
+    #     DestPriority            1,
+    #     DestUniqueid            1545241917.42,
+    #     Event                   "AgentConnect",
+    #     Exten                   "support_queue",
+    #     HoldTime                7,
+    #     Interface               "SIP/agent.name",
+    #     Language                "de",
+    #     Linkedid                1545241916.41,
+    #     MemberName              "SIP/agent.name",
+    #     Priority                7,
+    #     Privilege               "agent,all",
+    #     Queue                   "support",
+    #     RingTime                6,
+    #     Uniqueid                1545241916.41
+    # }
+    (my $agent = $event->{MemberName}) =~ s/^SIP\///;
+    post_zammad {
+        event => "answer",
+        direction => "in",
+        user => $agent,
+        callId => $event->{Uniqueid},
+      };
+  }
+  elsif ($event->{Event} eq "AgentComplete")
+  {
+    # EVENT: AgentComplete
+    # \ {
+    #     AccountCode             "",
+    #     CallerIDName            "Lastname, Firstname",
+    #     CallerIDNum             "+49 123 456789",
+    #     Channel                 "SIP/hfo-00000018",
+    #     ChannelState            6,
+    #     ChannelStateDesc        "Up",
+    #     ConnectedLineName       "AgentFirstname",
+    #     ConnectedLineNum        "<unknown>",
+    #     Context                 "internal",
+    #     DestAccountCode         "",
+    #     DestCallerIDName        "AgentFirstname",
+    #     DestCallerIDNum         "<unknown>",
+    #     DestChannel             "SIP/agent.name-00000019",
+    #     DestChannelState        6,
+    #     DestChannelStateDesc    "Up",
+    #     DestConnectedLineName   "Lastname, Firstname",
+    #     DestConnectedLineNum    "+49 123 456789",
+    #     DestContext             "internal",
+    #     DestExten               "support_queue",
+    #     DestLanguage            "de",
+    #     DestLinkedid            1545241916.41,
+    #     DestPriority            1,
+    #     DestUniqueid            1545241917.42,
+    #     Event                   "AgentComplete",
+    #     Exten                   "support_queue",
+    #     HoldTime                7,
+    #     Interface               "SIP/agent.name",
+    #     Language                "de",
+    #     Linkedid                1545241916.41,
+    #     MemberName              "SIP/agent.name",
+    #     Priority                7,
+    #     Privilege               "agent,all",
+    #     Queue                   "support",
+    #     Reason                  "agent",
+    #     TalkTime                3,
+    #     Uniqueid                1545241916.41
+    # }
+    post_zammad {
+        event => "hangup",
+        direction => "in",
+        callId => $event->{Uniqueid},
+        cause => "normalClearing",
+        };
+  }
+  elsif ($event->{Event} eq "QueueCallerAbandon")
+  {
+    # EVENT: QueueCallerAbandon
+    # \ {
+    #     AccountCode         "",
+    #     CallerIDName        "Lastname, Firstname",
+    #     CallerIDNum         "+49 123 456789",
+    #     Channel             "SIP/hfo-00000041",
+    #     ChannelState        6,
+    #     ChannelStateDesc    "Up",
+    #     ConnectedLineName   "<unknown>",
+    #     ConnectedLineNum    "<unknown>",
+    #     Context             "internal",
+    #     Event               "QueueCallerAbandon",
+    #     Exten               "support_queue",
+    #     HoldTime            1,
+    #     Language            "de",
+    #     Linkedid            1545244062.103,
+    #     OriginalPosition    1,
+    #     Position            1,
+    #     Priority            7,
+    #     Privilege           "agent,all",
+    #     Queue               "support",
+    #     Uniqueid            1545244062.103
+    # }
+
+    # FIXME
+    # A caller can give up on his own, or he can get kicked from the queue due
+    # to EXITEMPTY (no agents available). The AMI event currently doesn't tell
+    # us what happened, so we can't inform Zammad about this.
+    # https://issues.asterisk.org/jira/browse/ASTERISK-27828
+    post_zammad {
+        event => "hangup",
+        direction => "in",
+        callId => $event->{Uniqueid},
+        cause => "cancel",
+      };
+  }
+}
+
+Log::Any::Adapter->set('Dispatch',
+    outputs => [
+      [
+        'Screen',
+        min_level => "debug",
+        newline => 1,
+        callbacks => sub
+        {
+          my %h = (@_);
+          return sprintf("%s [%s] %s",
+              POSIX::strftime("%F %T", gmtime), $h{level}, $h{message});
+        }
+      ]
+    ]
+  );
+
+
+$cfg = Config::Simple->new("config.cfg") || die "failed to read config: $!";
+
+die "Invalid zammad.url value!\n" if !$cfg->param("zammad.url");
+die "Invalid asterisk.user value!\n" if !$cfg->param("asterisk.user");
+die "Invalid asterisk.secret value!\n" if !$cfg->param("asterisk.secret");
+
+asterisk_connect;
+
+my $connection_watcher = AnyEvent->timer(
+  interval => 5,
+  cb => sub {
+    #$log->debug("ping watcher");
+    if (ref $astman eq "Asterisk::AMI::destroyed")
+    {
+      $log->info("astman is gone");
+      asterisk_connect;
+    }
+  }
+);
+
+AnyEvent->condvar->recv;
+
