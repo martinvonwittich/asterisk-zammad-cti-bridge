@@ -66,20 +66,23 @@ sub post_zammad
 
   if (!$zammad_queue_watcher)
   {
-    $log->debug("starting queue runner");
+    if (scalar @zammad_post_queue > 1)
+    {
+      $log->debug("starting queue runner");
+    }
   }
   $zammad_queue_watcher ||= AnyEvent->idle(cb => sub {
       if (@zammad_post_queue > 0)
       {
         if (!$zammad_lock)
         {
-          $log->debug("dequeueing a single message");
+          #$log->debug("dequeueing a single message");
           dequeue_zammad;
         }
       }
       else
       {
-        $log->debug("stopping queue runner");
+        #$log->debug("stopping queue runner");
         undef $zammad_queue_watcher;
       }
     }
@@ -114,8 +117,11 @@ sub cb_default
   # AgentConnect -> Agent hat abgenommen
   # AgentComplete -> Agent hat fertig
 
-  $log->debugf("got event: %s", $event->{Event});
-  #$log->debug(np($event));
+  if ($event->{Event} !~ /(^QueueMember|^AgentCalled$|^AgentRingNoAnswer$|^QueueCallerLeave$)/)
+  {
+    $log->debugf("got event: %s", $event->{Event});
+    #$log->debug(np($event));
+  }
 
   if ($event->{Event} eq "QueueCallerJoin")
   {
@@ -295,7 +301,7 @@ Log::Any::Adapter->set('Dispatch',
         {
           my %h = (@_);
           return sprintf("%s [%s] %s",
-              POSIX::strftime("%F %T", gmtime), $h{level}, $h{message});
+              POSIX::strftime("%F %T %z", localtime), $h{level}, $h{message});
         }
       ]
     ]
