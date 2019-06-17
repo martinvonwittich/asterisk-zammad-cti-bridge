@@ -5,26 +5,60 @@ use AnyEvent::HTTP;
 use Asterisk::AMI;
 use Config::Simple;
 use DDP;
+use FindBin;
+use Getopt::Long;
 use Log::Any::Adapter;
 use Log::Any qw($log);
 use POSIX;
 use WWW::Form::UrlEncoded;
 
+my $opt;
 my $cfg;
 my $astman;
 my @zammad_post_queue;
 my $zammad_lock = 0;
 my $zammad_queue_watcher;
 
+sub help
+{
+  print "Usage: $0 [--asterisk ASTERISK] [--zammad ZAMMAD]\n";
+  print "\n";
+  print "This daemon connects to an Asterisk instance via AMI to monitor ";
+  print "queue events;\n";
+  print "relevant events will be pushed via HTTPS to a Zammad instance.\n";
+  print "\n";
+  print "Configuration on how to access these instances is configured in ";
+  print "config.cfg; by\n";
+  print "default the [zammad] section configures how to access the Zammad ";
+  print "instance, and\n";
+  print "the [asterisk] section configures how to access the Asterisk ";
+  print "instance.\n";
+  print "If you want to bridge multiple instances (e.g. one Asterisk should ";
+  print "push events\n";
+  print "to both production and testing instances of Zammad), configure ";
+  print "multiple\n";
+  print "sections in config.cfg and then start two instances of this daemon:\n";
+  print "\n";
+  print "  $0 --asterisk asterisk --zammad zammad-prod\n";
+  print "  $0 --asterisk asterisk --zammad zammad-test\n";
+  print "\n";
+  print "";
+  print "Options\n";
+  print "  --asterisk ASTERISK  Asterisk configuration section\n";
+  print "  --zammad   ZAMMAD    Zammad configuration section\n";
+  print "  --help               This help\n";
+  exit;
+}
+
 sub asterisk_connect
 {
   $log->info("connecting to Asterisk...");
 
   $astman = Asterisk::AMI->new(
-      PeerAddr => $cfg->param("asterisk.host"),
-      PeerPort => $cfg->param("asterisk.port"),
-      Username => $cfg->param("asterisk.user"),
-      Secret   => $cfg->param("asterisk.secret"),
+      PeerAddr => $cfg->param("$opt->{asterisk}.host"),
+      PeerPort => $cfg->param("$opt->{asterisk}.port"),
+      Username => $cfg->param("$opt->{asterisk}.user"),
+      Secret   => $cfg->param("$opt->{asterisk}.secret"),
       Events   => "on",
       Handlers => { default => \&cb_default },
       Blocking => 0,
@@ -43,7 +77,7 @@ sub dequeue_zammad
   $log->infof("posting to Zammad: %s", $body);
 
   $zammad_lock = 1;
-  http_post $cfg->param("zammad.url"), $body,
+  http_post $cfg->param("$opt->{zammad}.url"), $body,
       sub {
         $zammad_lock = 0;
         my ($data, $headers) = @_;
@@ -307,12 +341,41 @@ Log::Any::Adapter->set('Dispatch',
     ]
   );
 
+$opt->{asterisk} = "asterisk";
+$opt->{zammad} = "zammad";
 
-$cfg = Config::Simple->new("config.cfg") || die "failed to read config: $!";
+GetOptions($opt,
+    "asterisk=s",
+    "zammad=s",
+    "help"
+  ) or $opt->{help} = 1;
 
-die "Invalid zammad.url value!\n" if !$cfg->param("zammad.url");
-die "Invalid asterisk.user value!\n" if !$cfg->param("asterisk.user");
-die "Invalid asterisk.secret value!\n" if !$cfg->param("asterisk.secret");
+help if $opt->{help};
+
+my @stat;
+if (@stat = stat "config.cfg")
+{
+  die "Need 0600 permissions on config.cfg!\n" if ($stat[2] & 07777) != 0600;
+  $cfg = Config::Simple->new("config.cfg")
+      or die "failed to read config: $!";
+}
+elsif (@stat = stat "$FindBin::Bin/config.cfg")
+{
+  die "Need 0600 permissions on config.cfg!\n" if ($stat[2] & 07777) != 0600;
+  $cfg = Config::Simple->new("$FindBin::Bin/config.cfg")
+      or die "failed to read config: $!";
+}
+else
+{
+  die "Configuration file config.cfg not found!\n";
+}
+
+die "Invalid --zammad option!\n" if $opt->{zammad} !~ /^[\w-]{1,32}$/;
+die "Invalid --asterisk option!\n" if $opt->{asterisk} !~ /^[\w-]{1,32}$/;
+
+die "Invalid zammad.url value!\n" if !$cfg->param("$opt->{zammad}.url");
+die "Invalid asterisk.user value!\n" if !$cfg->param("$opt->{asterisk}.user");
+die "Invalid asterisk.secret value!\n" if !$cfg->param("$opt->{asterisk}.secret");
 
 asterisk_connect;
 

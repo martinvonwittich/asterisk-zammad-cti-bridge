@@ -36,6 +36,7 @@ This Perl script serves as a bridge between an Asterisk server and the Zammad CT
 
     ```
     cp config.cfg.sample config.cfg
+    chmod 600 config.cfg
     ```
 
 7. Edit `config.cfg` and fill in your Zammad CTI URL and your AMI secret.
@@ -45,3 +46,61 @@ This Perl script serves as a bridge between an Asterisk server and the Zammad CT
     ```
     ./asterisk-zammad-cti-bridge
     ```
+
+# systemd
+
+An example systemd service file `asterisk-zammad-cti-bridge.service.example` is provided. To install it:
+
+1. Copy the file to `/etc/systemd/system` and remove the `.example`:
+
+    ```
+    cp -a asterisk-zammad-cti-bridge.service.example /etc/systemd/system/asterisk-zammad-cti-bridge.service
+    ```
+
+2. Create the required user:
+
+    ```
+    useradd asterisk-zammad-cti-bridge
+    ```
+
+3. Set the `config.cfg` permissions:
+
+    ```
+    chown asterisk-zammad-cti-bridge config.cfg
+    chmod 0600 config.cfg
+    ```
+
+    `asterisk-zammad-cti-bridge` will read `config.cfg` from the current working directory or from the application directory, so you can place it either in `/home/asterisk-zammad-cti-bridge` or in `/opt/asterisk-zammad-cti-bridge`.
+
+4. Adapt the service file to your requirements:
+
+    - Change `ExecStart` to the correct path where you've placed `asterisk-zammad-cti-bridge.service`. The service defaults to `/opt/asterisk-zammad-cti-bridge`.
+
+    - If you want to use different Asterisk/Zammad instances from the config (see "Multiple instances" below), edit the service file as necessary. Create one systemd service file for each `asterisk-zammad-cti-bridge.service` instance.
+
+5. Enable the service:
+
+    ```
+    systemctl enable asterisk-zammad-cti-bridge.service
+    ```
+
+6. Start the service:
+
+    ```
+    systemctl start asterisk-zammad-cti-bridge.service
+    ```
+
+# Multiple instances
+
+If you want to bridge multiple Asterisk/Zammad instances, e.g. one Asterisk to two Zammad instances (prod and test), you need to run multiple `asterisk-zammad-cti-bridge` instances. Add a new section to `config.cfg` for each additional instance, e.g.:
+
+```
+[zammad-test]
+url=https://zammad-test.example.com/api/v1/cti/mytoken
+```
+
+Then start a new `asterisk-zammad-cti-bridge` instance and tell it to read the `[zammad-test]` section instead of the `[zammad]` section:
+
+```
+./asterisk-zammad-cti-bridge --zammad zammad-test
+```

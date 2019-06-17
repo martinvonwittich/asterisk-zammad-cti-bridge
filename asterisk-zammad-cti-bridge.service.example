@@ -1,0 +1,16 @@
+[Unit]
+Description=asterisk-zammad-cti-bridge
+After=network.target
+
+[Service]
+; FIXME requires systemd >= 240
+;Type=exec
+Type=simple
+;ExecStart=/opt/asterisk-zammad-cti-bridge/asterisk-zammad-cti-bridge --asterisk asterisk-test --zammad zammad-test
+ExecStart=/opt/asterisk-zammad-cti-bridge/asterisk-zammad-cti-bridge
+User=asterisk-zammad-cti-bridge
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
