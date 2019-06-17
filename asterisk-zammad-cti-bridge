@@ -157,7 +157,8 @@ sub cb_default
     #$log->debug(np($event));
   }
 
-  if ($event->{Event} eq "QueueCallerJoin")
+  if ($event->{Event} eq "QueueCallerJoin" ||  # Asterisk >= 12
+      $event->{Event} eq "Join")               # Asterisk <= 11
   {
     # EVENT: QueueCallerJoin
     # \ {
@@ -186,7 +187,7 @@ sub cb_default
         from => $event->{CallerIDNum},
         to => $event->{Queue},
         direction => "in",
-        callId => $event->{Uniqueid},
+        callId => $event->{Queue}.$event->{Uniqueid},
       };
   }
   elsif ($event->{Event} eq "AgentConnect")
@@ -234,7 +235,7 @@ sub cb_default
         event => "answer",
         direction => "in",
         user => $agent,
-        callId => $event->{Uniqueid},
+        callId => $event->{Queue}.$event->{Uniqueid},
       };
   }
   elsif ($event->{Event} eq "AgentComplete")
@@ -281,7 +282,7 @@ sub cb_default
     post_zammad {
         event => "hangup",
         direction => "in",
-        callId => $event->{Uniqueid},
+        callId => $event->{Queue}.$event->{Uniqueid},
         cause => "normalClearing",
         };
   }
@@ -319,7 +320,7 @@ sub cb_default
     post_zammad {
         event => "hangup",
         direction => "in",
-        callId => $event->{Uniqueid},
+        callId => $event->{Queue}.$event->{Uniqueid},
         cause => "cancel",
       };
   }
