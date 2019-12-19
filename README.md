@@ -134,3 +134,5 @@ announce-holdtime = no
 member => SIP/XXXX
 member => SIP/XXXX
 
+NOTE: After making the changes to asterisk do not forget to reload asterisk via asterisk -r or reloading the service!
+
