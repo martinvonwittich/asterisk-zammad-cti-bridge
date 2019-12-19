@@ -104,3 +104,33 @@ Then start a new `asterisk-zammad-cti-bridge` instance and tell it to read the `
 ```
 ./asterisk-zammad-cti-bridge --zammad zammad-test
 ```
+
+
+# Asterisk Config
+
+If you have not configured queues in asterisk before the following would be enough to get going:
+
+Add the following to  extensions.conf (Adapt to your environment)
+
+[support]
+exten => 1000,1,Answer
+exten => 1000,2,Ringing
+exten => 1000,3,Wait(2)
+exten => 1000,4,Queue(support)
+exten => 1000,6,Hangup
+
+Add the following to queues.conf (make sure to replace SIP/XXXX with your actual device/phone)
+
+[support]
+music=default
+strategy=ringall
+timeout=15
+retry=1
+wrapuptime=0
+maxlen = 0
+announce-frequency = 0
+announce-holdtime = no
+
+member => SIP/XXXX
+member => SIP/XXXX
+
