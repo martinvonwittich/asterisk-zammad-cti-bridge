@@ -188,6 +188,7 @@ sub cb_default
         to => $event->{Queue},
         direction => "in",
         callId => $event->{Queue}.$event->{Uniqueid},
+        "user[]" => $event->{CallerIDName},
       };
   }
   elsif ($event->{Event} eq "AgentConnect")
@@ -393,4 +394,3 @@ my $connection_watcher = AnyEvent->timer(
 );
 
 AnyEvent->condvar->recv;
-

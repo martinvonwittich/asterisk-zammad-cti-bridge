@@ -1,0 +1,5 @@
+version: "3.3"
+services:
+  asterisk-zammad-cti-bridge:
+    build: .
+    container_name: asterisk-zammad-cti-bridge
