@@ -23,7 +23,7 @@ This Perl script serves as a bridge between an Asterisk server and the Zammad CT
 
 4. Enable Zammad's CTI (Generic) interface.
 
-5. Edit `config.cfg` and fill in your Zammad CTI URL and your AMI secret.
+5. Rename `config.cfg.sample` to `config.cfg`. Edit and fill in your Zammad CTI URL and your AMI secret.
 
 6. Build and start the container:
 
