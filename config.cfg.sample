@@ -1,8 +1,0 @@
-[zammad]
-url=https://zammad.example.com/api/v1/cti/mytoken
-
-[asterisk]
-host=127.0.0.1
-port=5038
-user=zammad
-secret=foobar
