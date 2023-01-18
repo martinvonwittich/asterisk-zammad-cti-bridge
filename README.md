@@ -2,7 +2,6 @@ This Perl script serves as a bridge between an Asterisk server and the Zammad CT
 
 # Limitations
 
-- No AMI SSL support yet, so use it only on the Asterisk host.
 - Can only monitor queue events and nothing else.
 
 # Setup
