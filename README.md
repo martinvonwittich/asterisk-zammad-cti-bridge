@@ -1,8 +1,9 @@
 This Perl script serves as a bridge between an Asterisk server and the Zammad CTI interface. It connects via AMI to Asterisk and monitors it for queue events; the relevant ones will be pushed to Zammad's CTI interface.
 
+This version supports TLS, so you can run it in a different host from asterisk.
+
 # Limitations
 
-- No AMI SSL support yet, so use it only on the Asterisk host.
 - Can only monitor queue events and nothing else.
 
 # Setup
@@ -21,86 +22,48 @@ This Perl script serves as a bridge between an Asterisk server and the Zammad CT
 
 3. Run `manager reload` in `asterisk -r`.
 
-4. Install the Perl dependencies listed in the script.
+4. Enable Zammad's CTI (Generic) interface.
 
-    E.g. on Debian stretch:
+5. Rename `config.cfg.sample` to `config.cfg`. Edit and fill in your Zammad CTI URL and your AMI secret.
 
-    ```
-    apt install libanyevent-http-perl libconfig-simple-perl libdata-printer-perl liblog-any-perl liblog-any-adapter-dispatch-perl libwww-form-urlencoded-perl
-    cpan Asterisk::AMI
-    ```
-
-5. Enable Zammad's CTI (Generic) interface.
-
-6. Copy `config.cfg.sample` to `config.cfg`:
+6. Build and start the container:
 
     ```
-    cp config.cfg.sample config.cfg
-    chmod 600 config.cfg
+    docker-compose up --build -d
     ```
 
-7. Edit `config.cfg` and fill in your Zammad CTI URL and your AMI secret.
-
-8. Start the script:
+7. Check the logs and troubleshoot:
 
     ```
-    ./asterisk-zammad-cti-bridge
+    docker-compose logs -f
     ```
+    
+# Rebuild when changes are made
 
-# systemd
-
-An example systemd service file `asterisk-zammad-cti-bridge.service.example` is provided. To install it:
-
-1. Copy the file to `/etc/systemd/system` and remove the `.example`:
+1. Take down and remove container:
 
     ```
-    cp -a asterisk-zammad-cti-bridge.service.example /etc/systemd/system/asterisk-zammad-cti-bridge.service
+    docker-compose down
     ```
-
-2. Create the required user:
-
-    ```
-    useradd asterisk-zammad-cti-bridge
-    ```
-
-3. Set the `config.cfg` permissions:
+    
+2. Force re-building:
 
     ```
-    chown asterisk-zammad-cti-bridge config.cfg
-    chmod 0600 config.cfg
+    docker-compose up --force-recreate --build -d
     ```
-
-    `asterisk-zammad-cti-bridge` will read `config.cfg` from the current working directory or from the application directory, so you can place it either in `/home/asterisk-zammad-cti-bridge` or in `/opt/asterisk-zammad-cti-bridge`.
-
-4. Adapt the service file to your requirements:
-
-    - Change `ExecStart` to the correct path where you've placed `asterisk-zammad-cti-bridge.service`. The service defaults to `/opt/asterisk-zammad-cti-bridge`.
-
-    - If you want to use different Asterisk/Zammad instances from the config (see "Multiple instances" below), edit the service file as necessary. Create one systemd service file for each `asterisk-zammad-cti-bridge.service` instance.
-
-5. Enable the service:
+    
+3. Remove orphan images:
 
     ```
-    systemctl enable asterisk-zammad-cti-bridge.service
+    docker image prune -f
     ```
-
-6. Start the service:
+    
+BONUS. One-liner
 
     ```
-    systemctl start asterisk-zammad-cti-bridge.service
+    docker-compose up --force-recreate --build -d && docker image prune -f && docker-compose logs -f
     ```
-
-# Multiple instances
-
-If you want to bridge multiple Asterisk/Zammad instances, e.g. one Asterisk to two Zammad instances (prod and test), you need to run multiple `asterisk-zammad-cti-bridge` instances. Add a new section to `config.cfg` for each additional instance, e.g.:
-
-```
-[zammad-test]
-url=https://zammad-test.example.com/api/v1/cti/mytoken
-```
-
-Then start a new `asterisk-zammad-cti-bridge` instance and tell it to read the `[zammad-test]` section instead of the `[zammad]` section:
-
-```
-./asterisk-zammad-cti-bridge --zammad zammad-test
-```
+    
+# Multiple Instances
+Add config.cfg sections and edit the entrypoint of the Dockerfile accordingly to load them by using an script. 
+Or just simply spin up a second container with a completely new config.cfg
