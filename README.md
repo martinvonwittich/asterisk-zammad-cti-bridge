@@ -35,5 +35,32 @@ This Perl script serves as a bridge between an Asterisk server and the Zammad CT
     ```
     docker-compose logs -f
     ```
+    
+# Rebuild when changes are made
+
+1. Take down and remove container:
+
+    ```
+    docker-compose down
+    ```
+    
+2. Force re-building:
+
+    ```
+    docker-compose up --force-recreate --build -d
+    ```
+    
+3. Remove orphan images:
+
+    ```
+    docker image prune -f
+    ```
+    
+BONUS. One-liner
+
+    ```
+    docker-compose up --force-recreate --build -d && docker image prune -f && docker-compose logs -f
+    ```
+    
 # Multiple Instances
-Add config.cfg sections and edit the entrypoint of the Dockerfile accordingly to load them.
+Add config.cfg sections and edit the entrypoint of the Dockerfile accordingly to load them by using an script. Or just simply spin up a second container
