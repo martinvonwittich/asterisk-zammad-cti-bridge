@@ -1,5 +1,7 @@
 This Perl script serves as a bridge between an Asterisk server and the Zammad CTI interface. It connects via AMI to Asterisk and monitors it for queue events; the relevant ones will be pushed to Zammad's CTI interface.
 
+This version supports TLS, so you can run it in a different host from asterisk.
+
 # Limitations
 
 - Can only monitor queue events and nothing else.
@@ -63,4 +65,5 @@ BONUS. One-liner
     ```
     
 # Multiple Instances
-Add config.cfg sections and edit the entrypoint of the Dockerfile accordingly to load them by using an script. Or just simply spin up a second container
+Add config.cfg sections and edit the entrypoint of the Dockerfile accordingly to load them by using an script. 
+Or just simply spin up a second container with a completely new config.cfg
